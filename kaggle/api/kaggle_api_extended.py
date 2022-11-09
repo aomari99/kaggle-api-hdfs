@@ -34,6 +34,7 @@
 from __future__ import print_function
 import csv
 from datetime import datetime
+from hdfs.client import Client
 import io
 import json
 import os
@@ -697,6 +698,7 @@ class KaggleApi(KaggleApi):
     def competition_download_files(self,
                                    competition,
                                    path=None,
+                                   path_hdfs=None,
                                    force=False,
                                    quiet=True):
         """ downloads all competition files.
@@ -708,8 +710,11 @@ class KaggleApi(KaggleApi):
             force: force the download if the file already exists (default False)
             quiet: suppress verbose output (default is True)
         """
-        if path is None:
-            effective_path = self.get_default_download_dir(
+
+        if path_hdfs is not None:
+            response.read = path_hdfs
+        elif path is None:
+            response.read = self.get_default_download_dir(
                 'competitions', competition)
         else:
             effective_path = path
@@ -718,17 +723,19 @@ class KaggleApi(KaggleApi):
             self.competitions_data_download_files_with_http_info(
                 id=competition, _preload_content=False))
         url = response.retries.history[0].redirect_location.split('?')[0]
+
         outfile = os.path.join(effective_path,
                                competition + '.' + url.split('.')[-1])
 
         if force or self.download_needed(response, outfile, quiet):
-            self.download_file(response, outfile, quiet)
+            self.download_file(response, outfile, quiet,hdfs= (path_hdfs is None))
 
     def competition_download_cli(self,
                                  competition,
                                  competition_opt=None,
                                  file_name=None,
                                  path=None,
+                                 path_hdfs=None,
                                  force=False,
                                  quiet=False):
         """ a wrapper to competition_download_files, but first will parse input
@@ -743,6 +750,7 @@ class KaggleApi(KaggleApi):
             path: a path to download the file to
             force: force the download if the file already exists (default False)
             quiet: suppress verbose output (default is False)
+            path-hdfs : a path for hdfs
         """
         competition = competition or competition_opt
         if competition is None:
@@ -754,10 +762,10 @@ class KaggleApi(KaggleApi):
             raise ValueError('No competition specified')
         else:
             if file_name is None:
-                self.competition_download_files(competition, path, force,
+                self.competition_download_files(competition, path,path_hdfs, force,
                                                 quiet)
             else:
-                self.competition_download_file(competition, file_name, path,
+                self.competition_download_file(competition, file_name, path,path_hdfs,
                                                force, quiet)
 
     def competition_leaderboard_download(self, competition, path, quiet=True):
@@ -1567,7 +1575,7 @@ class KaggleApi(KaggleApi):
         else:
             print('Dataset creation error: ' + result.error)
 
-    def download_file(self, response, outfile, quiet=True, chunk_size=1048576):
+    def download_file(self, response, outfile, quiet=True, chunk_size=1048576,hdfs=False):
         """ download a file to an output file based on a chunk size
 
             Parameters
@@ -1577,28 +1585,39 @@ class KaggleApi(KaggleApi):
             quiet: suppress verbose output (default is True)
             chunk_size: the size of the chunk to stream
         """
-
-        outpath = os.path.dirname(outfile)
-        if not os.path.exists(outpath):
+        if hdfs:
+            outpath = outfile.split("/")[0]
+        else:
+            outpath = os.path.dirname(outfile)
+        if not os.path.exists(outpath) and hdfs == False:
             os.makedirs(outpath)
         size = int(response.headers['Content-Length'])
         size_read = 0
         if not quiet:
-            print('Downloading ' + os.path.basename(outfile) + ' to ' +
+            if hdfs:
+                print('Downloading to hdfs' + os.path.basename(outfile) + ' to ' +
+                  outpath )
+            else:
+                print('Downloading ' + os.path.basename(outfile) + ' to ' +
                   outpath)
-        with tqdm(total=size,
-                  unit='B',
-                  unit_scale=True,
-                  unit_divisor=1024,
-                  disable=quiet) as pbar:
-            with open(outfile, 'wb') as out:
-                while True:
-                    data = response.read(chunk_size)
-                    if not data:
-                        break
-                    out.write(data)
-                    size_read = min(size, size_read + chunk_size)
-                    pbar.update(len(data))
+            if hdfs == False:          
+                with tqdm(total=size,
+                        unit='B',
+                        unit_scale=True,
+                        unit_divisor=1024,
+                        disable=quiet) as pbar:
+                    
+                        with open(outfile, 'wb') as out:
+                            while True:
+                                data = response.read(chunk_size)
+                                if not data:
+                                    break
+                                out.write(data)
+                                size_read = min(size, size_read + chunk_size)
+                                pbar.update(len(data))
+            else:
+                    client =Client(outpath)
+                    client.write(outfile,response.read())
             if not quiet:
                 print('\n', end='')
 

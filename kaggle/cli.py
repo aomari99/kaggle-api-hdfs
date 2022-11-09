@@ -197,6 +197,12 @@ def parse_competitions(subparsers):
         dest='path',
         required=False,
         help=Help.param_downfolder)
+    parser_competitions_download_optional.add_argument(
+        '-r',
+        '--pathhdfs',
+        dest='path_hdfs',
+        required=False,
+        help=Help.param_downfolder)
     parser_competitions_download_optional.add_argument('-w',
                                                        '--wp',
                                                        dest='path',
