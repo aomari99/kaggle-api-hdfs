@@ -712,9 +712,9 @@ class KaggleApi(KaggleApi):
         """
 
         if path_hdfs is not None:
-            response.read = path_hdfs
+            effective_path = path_hdfs
         elif path is None:
-            response.read = self.get_default_download_dir(
+            effective_path = self.get_default_download_dir(
                 'competitions', competition)
         else:
             effective_path = path
