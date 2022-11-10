@@ -712,7 +712,7 @@ class KaggleApi(KaggleApi):
         """
 
         if path_hdfs is not None:
-            effective_path = path_hdfs
+           effective_path = path_hdfs
         elif path is None:
             effective_path = self.get_default_download_dir(
                 'competitions', competition)
@@ -728,7 +728,7 @@ class KaggleApi(KaggleApi):
                                competition + '.' + url.split('.')[-1])
 
         if force or self.download_needed(response, outfile, quiet):
-            self.download_file(response, outfile, quiet,hdfs= (path_hdfs is None))
+            self.download_file(response, outfile, quiet,hdfs= (path_hdfs is not None))
 
     def competition_download_cli(self,
                                  competition,
@@ -1575,7 +1575,7 @@ class KaggleApi(KaggleApi):
         else:
             print('Dataset creation error: ' + result.error)
 
-    def download_file(self, response, outfile, quiet=True, chunk_size=1048576,hdfs=False):
+    def download_file(self, response, outfile, quiet=True, chunk_size=1048576,hdfs=False, unzip=True ):
         """ download a file to an output file based on a chunk size
 
             Parameters
@@ -1586,7 +1586,9 @@ class KaggleApi(KaggleApi):
             chunk_size: the size of the chunk to stream
         """
         if hdfs:
-            outpath = outfile.split("/")[0]
+            outpath = '/'.join(outfile.split("/")[:3])
+            client =Client(outpath)
+            print("Connected to Hdfs")
         else:
             outpath = os.path.dirname(outfile)
         if not os.path.exists(outpath) and hdfs == False:
@@ -1595,18 +1597,18 @@ class KaggleApi(KaggleApi):
         size_read = 0
         if not quiet:
             if hdfs:
-                print('Downloading to hdfs' + os.path.basename(outfile) + ' to ' +
-                  outpath )
+                print('Downloading to hdfs ' + os.path.basename(outfile) + ' to ' +
+                 "/" + '/'.join(outfile.split("/")[3:]))
             else:
                 print('Downloading ' + os.path.basename(outfile) + ' to ' +
                   outpath)
-            if hdfs == False:          
-                with tqdm(total=size,
+                 
+        with tqdm(total=size,
                         unit='B',
                         unit_scale=True,
                         unit_divisor=1024,
-                        disable=quiet) as pbar:
-                    
+                        disable=quiet,desc='Download') as pbar:
+                    if hdfs == False:  
                         with open(outfile, 'wb') as out:
                             while True:
                                 data = response.read(chunk_size)
@@ -1615,10 +1617,41 @@ class KaggleApi(KaggleApi):
                                 out.write(data)
                                 size_read = min(size, size_read + chunk_size)
                                 pbar.update(len(data))
-            else:
-                    client =Client(outpath)
-                    client.write(outfile,response.read())
-            if not quiet:
+                    else:
+                        if unzip:
+                            with io.BytesIO() as inmemoryfile:
+                            
+                                while True:
+                                    data = response.read(chunk_size)
+                                    if not data:
+                                        break
+                                    inmemoryfile.write(data)
+                                    size_read = min(size, size_read + chunk_size)
+                                    pbar.update(len(data))
+                                pbar.close()  
+                                file_obj = zipfile.ZipFile(inmemoryfile, "r")
+                                files = [j for j in  file_obj.namelist() if j.endswith('/') == False]
+                                
+                                
+                                with tqdm(total=len(files),
+                        unit='file',
+                        disable=quiet, desc='Unzip File') as pbar2:
+                                    for i in  range(len(files)):
+                                        with client.write( "/" + '/'.join(outfile.split("/")[3:]).replace(".zip","/")+files[i] , overwrite=True ) as out:
+                                            out.write(file_obj.read(files[i]))
+                                            pbar2.update(1)
+                                    
+                        else:
+                            with client.write( "/" + '/'.join(outfile.split("/")[3:]),overwrite=True) as out:
+                                while True:
+                                    data = response.read(chunk_size)
+                                    if not data:
+                                        break
+                                    out.write(data)
+                                    size_read = min(size, size_read + chunk_size)
+                                    pbar.update(len(data))
+                         
+        if not quiet:
                 print('\n', end='')
 
     def kernels_list(self,
